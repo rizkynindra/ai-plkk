@@ -1,0 +1,30 @@
+# EPLKK FastAPI service. Survives a closed terminal and reboots.
+#
+# On the L4 server:
+#   sudo cp deploy/ai-eplkk.service /etc/systemd/system/ai-eplkk.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ai-eplkk
+#   sudo systemctl status ai-eplkk
+#
+# Logs: journalctl -u ai-eplkk -f
+# Edit User/WorkingDirectory/ExecStart if the app is not at /home/sysadmin/ai-eplkk.
+
+[Unit]
+Description=EPLKK claim to Template_Biaya
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+User=sysadmin
+Group=sysadmin
+WorkingDirectory=/home/sysadmin/ai-eplkk
+Environment=PATH=/home/sysadmin/ai-eplkk/.venv/bin:/home/sysadmin/.local/bin:/usr/local/bin:/usr/bin
+EnvironmentFile=-/home/sysadmin/ai-eplkk/.env
+ExecStart=/home/sysadmin/ai-eplkk/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

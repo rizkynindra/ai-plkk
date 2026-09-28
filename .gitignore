@@ -1,0 +1,14 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+uploads/
+*.egg-info/
+.pytest_cache/
+dist/
+.mypy_cache/
+.idea/
+.vscode/
+samples/.~lock.*
+data/*.db
