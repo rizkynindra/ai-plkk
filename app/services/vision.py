@@ -168,6 +168,89 @@ Use an integer for price. Skip rows whose price is unreadable.
     return items if isinstance(items, list) else []
 
 
+PKS_CLASSIFY_PROMPT = """
+Is this page a hospital tariff table? A tariff page lists medical services with
+rupiah prices such as 150.000 or 1.500.000. A cover, signature page, or legal
+clause without a price table is not a tariff page.
+Return {"is_tariff_page": true} or {"is_tariff_page": false}.
+""".strip()
+
+PKS_EXTRACT_PROMPT = """
+Copy every priced service row from this Indonesian hospital tariff page.
+Do not invent rows. Skip titles, page numbers, notes, and totals.
+If a row has one price, return one item. If a row has a price for each class
+(Kelas III, Kelas II, Kelas I, VIP), return one item per class and put the
+class in tariff_note. Put the section heading in kelompok when one is visible.
+
+Return one JSON object:
+{
+  "items": [
+    {"kelompok": "", "item_name": "", "tariff": 1500000, "tariff_note": ""}
+  ]
+}
+tariff is an integer number of rupiah with no separators.
+""".strip()
+
+
+def extract_pks_tariffs_from_pdf(data: bytes, page_indexes: list[int]) -> list[dict]:
+    if not page_indexes or not vision_service_reachable():
+        return []
+    indexes = page_indexes[: settings.vision_max_pages]
+    document = pymupdf.open(stream=data, filetype="pdf")
+    try:
+        thumbs = [
+            _render_page(document.load_page(index), scale=settings.vision_classify_scale)
+            for index in indexes
+        ]
+        workers = max(1, min(len(thumbs), settings.vision_parallel_requests))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            flags = list(pool.map(_page_is_tariff, thumbs))
+        chosen = [index for index, is_tariff in zip(indexes, flags) if is_tariff]
+        images = [(index, _render_page(document.load_page(index))) for index in chosen]
+    finally:
+        document.close()
+    if not images:
+        return []
+    workers = max(1, min(len(images), settings.vision_parallel_requests))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        extracted = list(
+            pool.map(lambda pair: (pair[0], extract_pks_tariffs_from_image(pair[1])), images)
+        )
+    rows: list[dict] = []
+    for index, items in extracted:
+        for item in items:
+            if isinstance(item, dict):
+                row = dict(item)
+                row["source_page"] = index + 1
+                rows.append(row)
+    return rows
+
+
+def extract_pks_tariffs_from_image(image: bytes) -> list[dict]:
+    if not vision_available():
+        return []
+    result = _ollama_vision_json(
+        image,
+        PKS_EXTRACT_PROMPT,
+        num_ctx=settings.vision_context_size,
+        num_predict=settings.vision_max_output_tokens,
+    )
+    items = (result or {}).get("items")
+    return items if isinstance(items, list) else []
+
+
+def _page_is_tariff(image: bytes) -> bool:
+    payload = _ollama_vision_json(
+        image,
+        PKS_CLASSIFY_PROMPT,
+        num_ctx=settings.vision_classify_context_size,
+        num_predict=settings.vision_classify_max_output_tokens,
+    )
+    if not payload:
+        return True
+    return bool(payload.get("is_tariff_page"))
+
+
 def extract_pdf_cost_lines_with_vision(data: bytes) -> list[CostLine]:
     if not vision_available():
         return []

@@ -5,14 +5,24 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pymupdf
+from PIL import Image
 
+from app.config import settings
 from app.schemas import ExtractedTable
+from app.services.ingest.image import ocr_pil_image
 from app.services.ingest.router import ingest_file
 from app.services.money import parse_idr_amount
+from app.services.vision import extract_pks_tariffs_from_pdf, vision_service_reachable
 
 CODE_RE = re.compile(r"^([A-Z]{2,3}\d{4})\b\s*(.*)$")
 GROUPED_AMOUNT = re.compile(r"\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?")
+ROW_NUMBER_RE = re.compile(r"^\d{1,3}[.)]?\s+")
+CLASS_TOKEN = re.compile(r"\b(?:KELAS|TARIF|HARGA|RUPIAH|VVIP|VIP|IV|III|II|I)\b", re.I)
 SKIP_NAME_MARKERS = ("daftar isi", "kata pengantar", "ketentuan umum")
+SKIP_TARIFF_NAMES = ("total", "jumlah", "subtotal", "sub total", "grand total")
+SCAN_UNREADABLE = (
+    "This PDF is a scan with no text layer. OCR did not read it, and the vision service is not running."
+)
 
 
 @dataclass
@@ -60,19 +70,160 @@ def parse_pks_document(data: bytes, filename: str) -> CatalogDraft:
 
 
 def _parse_pdf(data: bytes, filename: str) -> CatalogDraft:
-    document = pymupdf.open(stream=data, filetype="pdf")
-    pages: list[str] = []
-    try:
-        for index in range(document.page_count):
-            pages.append(document.load_page(index).get_text("text") or "")
-    finally:
-        document.close()
+    pages, scan_indexes, used_ocr = _read_pdf_pages(data)
     items = _parse_text_pages(pages)
+    method = "pdf-ocr" if used_ocr else "pdf-text"
+    if not items:
+        items = _parse_tariff_lines(pages)
+    if not items and scan_indexes:
+        if vision_service_reachable():
+            items = _items_from_vision(extract_pks_tariffs_from_pdf(data, scan_indexes))
+            if items:
+                method = "pdf-vision"
+        elif not _has_readable_text(pages):
+            raise ValueError(SCAN_UNREADABLE)
     suggested = _suggest_hospital("\n".join(pages[:6]), filename)
     suggested.source_filename = filename
-    suggested.method = "pdf-text"
+    suggested.method = method
     suggested.items = items
     return suggested
+
+
+def _read_pdf_pages(data: bytes) -> tuple[list[str], list[int], bool]:
+    document = pymupdf.open(stream=data, filetype="pdf")
+    pages: list[str] = []
+    scan_indexes: list[int] = []
+    used_ocr = False
+    try:
+        for index in range(document.page_count):
+            page = document.load_page(index)
+            text = page.get_text("text") or ""
+            if len(text.strip()) >= settings.pdf_scan_text_threshold or not page.get_images():
+                pages.append(text)
+                continue
+            scan_indexes.append(index)
+            ocr_text = _ocr_page(page)
+            if len(ocr_text.strip()) >= settings.pdf_scan_text_threshold:
+                used_ocr = True
+                text = ocr_text
+            pages.append(text)
+    finally:
+        document.close()
+    return pages, scan_indexes, used_ocr
+
+
+def _ocr_page(page: pymupdf.Page) -> str:
+    if not settings.ocr_enabled:
+        return ""
+    pixmap = page.get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=False)
+    if pixmap.n != 3:
+        pixmap = pymupdf.Pixmap(pymupdf.csRGB, pixmap)
+    image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+    return ocr_pil_image(image)
+
+
+def _has_readable_text(pages: list[str]) -> bool:
+    return any(len(page.strip()) >= settings.pdf_scan_text_threshold for page in pages)
+
+
+def _parse_tariff_lines(pages: list[str]) -> list[CatalogItem]:
+    items: list[CatalogItem] = []
+    kelompok = ""
+    class_labels: list[str] = []
+    for page_number, page_text in enumerate(pages, start=1):
+        lines = [re.sub(r"\s+", " ", line).strip() for line in page_text.splitlines()]
+        for line in lines:
+            if not line:
+                continue
+            amounts = _grouped_amounts(line)
+            if not amounts:
+                labels = _class_labels_from_header(line)
+                if labels:
+                    class_labels = labels
+                elif _looks_like_section(line):
+                    kelompok = line
+                continue
+            name = _tariff_row_name(line)
+            if not name or _is_skipped_tariff_name(name):
+                continue
+            labels = class_labels if len(class_labels) == len(amounts) else []
+            if len(amounts) == 1:
+                items.append(
+                    CatalogItem(
+                        item_name=name,
+                        tariff=amounts[0],
+                        kelompok=kelompok,
+                        source_page=page_number,
+                    )
+                )
+                continue
+            for index, amount in enumerate(amounts):
+                label = labels[index] if labels else ""
+                items.append(
+                    CatalogItem(
+                        item_name=f"{name} {label}".strip(),
+                        tariff=amount,
+                        kelompok=kelompok,
+                        tariff_note=label,
+                        source_page=page_number,
+                    )
+                )
+    return _dedupe_items(items)
+
+
+def _grouped_amounts(line: str) -> list[float]:
+    amounts = [parse_idr_amount(match.group(0)) for match in GROUPED_AMOUNT.finditer(line)]
+    return [amount for amount in amounts if amount is not None and amount >= 1000]
+
+
+def _tariff_row_name(line: str) -> str:
+    name = GROUPED_AMOUNT.sub(" ", line)
+    name = ROW_NUMBER_RE.sub("", name)
+    name = re.sub(r"\b(rp|idr)\b", " ", name, flags=re.I)
+    return re.sub(r"\s+", " ", name).strip(" -|.")
+
+
+def _is_skipped_tariff_name(name: str) -> bool:
+    lowered = name.lower()
+    return any(lowered == marker or lowered.startswith(f"{marker} ") for marker in SKIP_TARIFF_NAMES)
+
+
+def _class_labels_from_header(line: str) -> list[str]:
+    if GROUPED_AMOUNT.search(line) or not CLASS_TOKEN.search(line):
+        return []
+    labels: list[str] = []
+    for token in re.findall(r"[A-Za-z]+", line):
+        upper = token.upper()
+        if upper in {"KELAS", "TARIF", "HARGA", "RUPIAH"}:
+            continue
+        if upper not in {"I", "II", "III", "IV", "VIP", "VVIP"}:
+            return []
+        labels.append(upper if upper in {"VIP", "VVIP"} else f"Kelas {upper}")
+    if len(labels) < 2:
+        return []
+    return labels
+
+
+def _items_from_vision(rows: list[dict]) -> list[CatalogItem]:
+    items: list[CatalogItem] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("item_name") or "").strip()
+        amount = parse_idr_amount(row.get("tariff"))
+        if not name or amount is None or amount < 1000:
+            continue
+        source_page = row.get("source_page")
+        items.append(
+            CatalogItem(
+                item_name=name,
+                tariff=amount,
+                kelompok=str(row.get("kelompok") or "").strip(),
+                tariff_note=str(row.get("tariff_note") or "").strip(),
+                source_page=source_page if isinstance(source_page, int) else None,
+            )
+        )
+    return _dedupe_items(items)
 
 
 def _parse_text_pages(pages: list[str]) -> list[CatalogItem]:

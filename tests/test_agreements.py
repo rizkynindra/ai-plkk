@@ -127,3 +127,103 @@ def test_convert_rejects_tarif_book() -> None:
     path = SAMPLES / "TARIF PELNI.pdf"
     response = client.post("/api/convert", files={"file": (path.name, path.read_bytes(), "application/pdf")})
     assert response.status_code == 422
+
+
+def test_text_pdf_without_item_codes_extracts_prices() -> None:
+    data = _text_pdf(
+        [
+            "KONSULTASI DOKTER",
+            "1 Konsultasi Dokter Umum 1.500.000",
+            "2 Konsultasi Dokter Spesialis 2.250.000",
+            "KAMAR PERAWATAN",
+            "Kelas III Kelas II Kelas I",
+            "Rawat Inap 500.000 750.000 1.000.000",
+        ]
+    )
+    draft = parse_pks_document(data, "PKS RS COLUMBIA ASIA BSD.pdf")
+    by_name = {item.item_name: item for item in draft.items}
+    assert draft.method == "pdf-text"
+    assert by_name["Konsultasi Dokter Umum"].tariff == 1_500_000
+    assert by_name["Konsultasi Dokter Umum"].kelompok == "KONSULTASI DOKTER"
+    assert by_name["Rawat Inap Kelas III"].tariff == 500_000
+    assert by_name["Rawat Inap Kelas I"].tariff == 1_000_000
+    assert by_name["Rawat Inap Kelas I"].kelompok == "KAMAR PERAWATAN"
+
+
+def test_coded_text_pdf_keeps_item_code() -> None:
+    data = _text_pdf(
+        [
+            "BIAYA ADMINISTRASI",
+            "BA0001 ADMINISTRASI RAWAT JALAN BARU 75.000",
+        ]
+    )
+    draft = parse_pks_document(data, "TARIF PELNI.pdf")
+    assert draft.method == "pdf-text"
+    assert draft.items[0].item_code == "BA0001"
+    assert draft.items[0].tariff == 75_000
+
+
+def test_scanned_pdf_uses_ocr_text(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.agreements.parse.ocr_pil_image",
+        lambda image: "KONSULTASI DOKTER\n1 Konsultasi Dokter Umum 1.500.000\n",
+    )
+    draft = parse_pks_document(_scan_pdf(), "PKS RS COLUMBIA ASIA BSD.pdf")
+    assert draft.method == "pdf-ocr"
+    assert draft.items[0].item_name == "Konsultasi Dokter Umum"
+    assert draft.items[0].tariff == 1_500_000
+
+
+def test_unreadable_scan_uses_vision(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.agreements.parse.ocr_pil_image", lambda image: "")
+    monkeypatch.setattr("app.services.agreements.parse.vision_service_reachable", lambda timeout_seconds=2.0: True)
+    monkeypatch.setattr(
+        "app.services.agreements.parse.extract_pks_tariffs_from_pdf",
+        lambda data, page_indexes: [
+            {
+                "kelompok": "KONSULTASI DOKTER",
+                "item_name": "Konsultasi Dokter Umum",
+                "tariff": 1_500_000,
+                "tariff_note": "",
+                "source_page": 1,
+            }
+        ],
+    )
+    draft = parse_pks_document(_scan_pdf(), "PKS RS COLUMBIA ASIA BSD.pdf")
+    assert draft.method == "pdf-vision"
+    assert draft.items[0].tariff == 1_500_000
+    assert draft.items[0].kelompok == "KONSULTASI DOKTER"
+
+
+def test_unreadable_scan_explains_missing_reader(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.agreements.parse.ocr_pil_image", lambda image: "")
+    monkeypatch.setattr("app.services.agreements.parse.vision_service_reachable", lambda timeout_seconds=2.0: False)
+    with pytest.raises(ValueError, match="scan with no text layer"):
+        parse_pks_document(_scan_pdf(), "PKS RS COLUMBIA ASIA BSD.pdf")
+
+
+def _text_pdf(lines: list[str]) -> bytes:
+    import pymupdf
+
+    document = pymupdf.open()
+    page = document.new_page()
+    y = 72
+    for line in lines:
+        page.insert_text((72, y), line, fontsize=12)
+        y += 18
+    data = document.tobytes()
+    document.close()
+    return data
+
+
+def _scan_pdf() -> bytes:
+    import pymupdf
+
+    document = pymupdf.open()
+    page = document.new_page()
+    pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 8, 8), 1)
+    pixmap.clear_with(255)
+    page.insert_image(page.rect, pixmap=pixmap)
+    data = document.tobytes()
+    document.close()
+    return data
