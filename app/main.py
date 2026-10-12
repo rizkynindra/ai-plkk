@@ -11,7 +11,13 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from app.schemas import AgreementBase64Request, AgreementSaveRequest, CompareRequest, ConvertBase64Request
+from app.schemas import (
+    AgreementBase64Request,
+    AgreementSaveRequest,
+    CompareRequest,
+    ConvertBase64Request,
+    TariffReviewDraft,
+)
 from app.services.agreements.pages import AGREEMENTS_PAGE, CATALOG_PAGE, COMPARE_PAGE
 from app.services.agreements.service import (
     compare_branch_lines,
@@ -24,7 +30,18 @@ from app.services.agreements.service import (
 from app.services.convert import EmptyExtractionError, NotClaimInvoiceError, convert_document
 from app.services.ingest.router import UnsupportedDocumentError, guess_filename
 from app.services.preview import get_conversion, render_preview_html, store_conversion
-
+from app.services.tarif_review import (
+    REVIEW_PAGE,
+    export_workbook,
+    load_catalog,
+    load_draft,
+    marks_for_row,
+    pdf_index,
+    pdf_info,
+    render_page_png,
+    save_draft,
+    store_pdf,
+)
 from app.web import render_app_page
 
 app = FastAPI(title="EPLKK Claim to Template_Biaya", version="0.1.0")
@@ -75,6 +92,68 @@ def catalog_page() -> str:
 @app.get("/compare", response_class=HTMLResponse)
 def compare_page() -> str:
     return COMPARE_PAGE
+
+
+@app.get("/review", response_class=HTMLResponse)
+def tariff_review_page() -> str:
+    return REVIEW_PAGE
+
+
+@app.get("/api/tarif-review/emc-alam-sutera")
+async def tariff_review_catalog() -> JSONResponse:
+    return JSONResponse(await run_in_threadpool(_review_call, load_catalog))
+
+
+@app.get("/api/tarif-review/emc-alam-sutera/draft")
+def tariff_review_draft_get() -> JSONResponse:
+    return JSONResponse(_review_call(load_draft))
+
+
+@app.put("/api/tarif-review/emc-alam-sutera/draft")
+def tariff_review_draft_put(body: TariffReviewDraft) -> JSONResponse:
+    return JSONResponse(_review_call(save_draft, body))
+
+
+@app.get("/api/tarif-review/emc-alam-sutera/pdf")
+def tariff_review_pdf_info() -> JSONResponse:
+    return JSONResponse(pdf_info())
+
+
+@app.get("/api/tarif-review/emc-alam-sutera/pdf/index")
+async def tariff_review_pdf_index() -> JSONResponse:
+    payload = await run_in_threadpool(_review_call, pdf_index)
+    return JSONResponse(payload)
+
+
+@app.post("/api/tarif-review/emc-alam-sutera/pdf")
+async def tariff_review_pdf_upload(file: UploadFile = File(...)) -> JSONResponse:
+    payload = await file.read()
+    info = await run_in_threadpool(_review_call, store_pdf, payload, file.filename or "pks.pdf")
+    return JSONResponse(info)
+
+
+@app.get("/api/tarif-review/emc-alam-sutera/pdf/pages/{page_number}")
+async def tariff_review_pdf_page(page_number: int) -> Response:
+    png = await run_in_threadpool(_review_call, render_page_png, page_number)
+    return Response(content=png, media_type="image/png")
+
+
+@app.get("/api/tarif-review/emc-alam-sutera/pdf/pages/{page_number}/marks")
+async def tariff_review_marks(page_number: int, kode: str = Query(...)) -> JSONResponse:
+    payload = await run_in_threadpool(_review_call, marks_for_row, page_number, kode)
+    return JSONResponse(payload)
+
+
+@app.get("/api/tarif-review/emc-alam-sutera/export")
+def tariff_review_export() -> Response:
+    workbook = _review_call(export_workbook)
+    return Response(
+        content=workbook,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="TARIF_KESEPAKATAN_EMC_ALAM_SUTERA_reviewed.xlsx"'
+        },
+    )
 
 
 @app.post("/preview", response_class=HTMLResponse)
@@ -199,6 +278,19 @@ def compare_invoice(body: CompareRequest) -> JSONResponse:
     if result["catalog_size"] == 0:
         raise HTTPException(status_code=404, detail="No PKS catalog stored for this branch.")
     return JSONResponse(result)
+
+
+def _review_call(fn, *args):
+    try:
+        return fn(*args)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except IndexError as exc:
+        raise HTTPException(status_code=404, detail="That page is not in this PDF.") from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown Kode Master.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 async def _preview_agreement_base64(body: AgreementBase64Request) -> dict:

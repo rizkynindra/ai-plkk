@@ -11,6 +11,8 @@ def render_app_page(
     active: str,
     body: str,
     scripts: list[str] | None = None,
+    shell_class: str = "shell",
+    body_class: str = "",
 ) -> str:
     script_tags = "\n".join(
         f'    <script src="{escape(src)}"></script>' for src in (scripts or [])
@@ -23,10 +25,10 @@ def render_app_page(
     <title>{escape(title)}</title>
     <link rel="stylesheet" href="/static/styles.css"/>
   </head>
-  <body>
+  <body class="{escape(body_class)}">
     <a class="skip" href="#main">Skip to content</a>
     {_nav(active)}
-    <main id="main" class="shell">
+    <main id="main" class="{escape(shell_class)}">
       <header class="page-head">
         <h1>{escape(heading)}</h1>
         <p class="lede">{escape(lede)}</p>
@@ -45,6 +47,7 @@ def _nav(active: str) -> str:
         ("pks", "/agreements", "Upload PKS"),
         ("catalog", "/catalog", "PKS data"),
         ("compare", "/compare", "Compare"),
+        ("review", "/review", "Tariff review"),
     )
     links = []
     for key, href, label in items:

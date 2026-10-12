@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -82,3 +84,13 @@ class CompareRequest(BaseModel):
     branch_id: int
     lines: list[CostLine] | None = None
     conversion_id: str | None = None
+
+
+class TariffReviewRowDraft(BaseModel):
+    verified_price: int = Field(ge=0)
+    status: Literal["matches", "corrected"]
+    note: str = Field(default="", max_length=500)
+
+
+class TariffReviewDraft(BaseModel):
+    rows: dict[str, TariffReviewRowDraft] = Field(default_factory=dict)

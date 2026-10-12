@@ -179,6 +179,10 @@ body {
   background: var(--stamp-dark);
 }
 
+.button.secondary:hover {
+  background: var(--paper);
+}
+
 .button.secondary {
   background: transparent;
   border-color: var(--line);
@@ -194,7 +198,8 @@ body {
 .site-nav a:focus-visible,
 .nav-toggle:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+textarea:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
@@ -233,7 +238,8 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   display: block;
   width: 100%;
   margin-top: 0.3rem;
@@ -244,6 +250,11 @@ select {
   background: #fff;
   color: var(--ink);
   font: inherit;
+}
+
+textarea {
+  min-height: 5.5rem;
+  resize: vertical;
 }
 
 .facts {
@@ -345,5 +356,307 @@ tr.review {
   .actions .button,
   .actions .button.secondary {
     width: 100%;
+  }
+}
+
+.shell-wide {
+  width: min(92rem, calc(100% - 1.5rem));
+}
+
+.review-body .topbar-inner {
+  width: min(92rem, calc(100% - 1.5rem));
+}
+
+.doc-facts {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.7rem 1.5rem;
+  margin: 1.25rem 0 0;
+}
+
+.doc-facts div {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  gap: 0.2rem 0.8rem;
+  align-items: baseline;
+}
+
+.doc-facts dt {
+  color: var(--muted);
+}
+
+.doc-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.review-split {
+  display: grid;
+  grid-template-columns: minmax(16rem, 1fr) minmax(0, 1.15fr);
+  gap: 1rem;
+  align-items: start;
+  margin-top: 1.25rem;
+}
+
+.extract-pane,
+.pdf-pane {
+  min-width: 0;
+}
+
+.pane-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+  align-items: baseline;
+}
+
+.pane-bar h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.pane-bar p,
+.key-hint {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+}
+
+.review-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.8rem 0;
+}
+
+.review-filters label {
+  flex: 1 1 11rem;
+}
+
+.pdf-pane {
+  padding: 0.9rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 4px 4px 0 #e4d9c8;
+}
+
+.pdf-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: end;
+  margin-top: 0.8rem;
+}
+
+.review-desk .button,
+.review-desk .pdf-open,
+.review-desk input,
+.review-desk select {
+  min-height: 2.75rem;
+}
+
+.pdf-open {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.pdf-open input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.pdf-open:focus-within,
+.review-table tr:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.review-desk .page-field {
+  flex: 0 0 auto;
+}
+
+.review-desk .page-field input {
+  width: 4.5rem;
+}
+
+#page-total {
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+}
+
+.review-desk .button:disabled {
+  opacity: 1;
+  color: var(--muted);
+  background: transparent;
+  border-color: var(--line);
+  cursor: not-allowed;
+}
+
+.pdf-stage {
+  max-height: min(72vh, 40rem);
+  margin-top: 0.8rem;
+  overflow: auto;
+  background: #e7dfd2;
+  border: 1px solid var(--line);
+}
+
+.pdf-empty {
+  margin: 0;
+  padding: 1.1rem;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.pdf-frame {
+  position: relative;
+}
+
+.pdf-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.pdf-marks {
+  position: absolute;
+  inset: 0;
+}
+
+.pdf-mark {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--stamp);
+  background: rgba(155, 44, 44, 0.16);
+}
+
+.row-detail {
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.detail-title {
+  margin: 0;
+  font-family: Georgia, "ui-serif", serif;
+  font-size: clamp(1.15rem, 2vw, 1.4rem);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.review-table td.nama,
+#detail-meta,
+.basis {
+  overflow-wrap: anywhere;
+}
+
+#detail-meta,
+#detail-check,
+.basis {
+  margin: 0.45rem 0 0;
+  line-height: 1.45;
+}
+
+.detail-list {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  gap: 0.35rem 0.8rem;
+  margin: 0.8rem 0;
+}
+
+.detail-list dt {
+  color: var(--muted);
+}
+
+.detail-list dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.review-table td {
+  vertical-align: top;
+}
+
+.review-table td.nama {
+  min-width: 9rem;
+}
+
+.review-table tr {
+  cursor: pointer;
+}
+
+.review-table tr.is-selected {
+  box-shadow: inset 3px 0 0 var(--stamp);
+}
+
+.verified-price,
+.check-corrected {
+  color: var(--stamp);
+  font-weight: 650;
+}
+
+.decision {
+  margin-top: 1rem;
+}
+
+@media (min-width: 720px) {
+  .doc-facts {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (min-width: 961px) {
+  .review-table td.nama {
+    min-width: 14rem;
+  }
+}
+
+@media (max-width: 719px) {
+  .review-table th:nth-child(n + 5),
+  .review-table td:nth-child(n + 5) {
+    display: none;
+  }
+
+  .review-table table {
+    min-width: 0;
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  .review-table th:nth-child(1) { width: 30%; }
+  .review-table th:nth-child(2) { width: 38%; }
+  .review-table th:nth-child(3) { width: 18%; }
+  .review-table th:nth-child(4) { width: 14%; }
+
+  .review-table td.nama {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 960px) {
+  .review-split {
+    grid-template-columns: 1fr;
+  }
+
+  .pdf-stage {
+    max-height: 18rem;
   }
 }

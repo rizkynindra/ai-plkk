@@ -12,3 +12,4 @@ dist/
 .vscode/
 samples/.~lock.*
 data/*.db
+data/tarif-review/

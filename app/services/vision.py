@@ -101,6 +101,73 @@ def vision_available() -> bool:
     return settings.vision_enabled and settings.vision_provider == "ollama"
 
 
+def vision_service_reachable(timeout_seconds: float = 2.0) -> bool:
+    if not vision_available():
+        return False
+    for base_url in _vision_endpoints():
+        endpoint = _client_chat_endpoint(base_url).removesuffix("/api/chat") + "/api/tags"
+        try:
+            with _ollama_opener.open(Request(endpoint, method="GET"), timeout=timeout_seconds):
+                return True
+        except (HTTPError, OSError, URLError, TimeoutError):
+            continue
+    return False
+
+
+def identify_hospital_from_image(image: bytes, hospital_candidates: list[str]) -> str:
+    if not vision_available() or not hospital_candidates:
+        return ""
+    prompt = f"""
+Read this page from an Indonesian hospital agreement or tariff document.
+Return the hospital name printed in the document. Do not infer it from layout
+or invent a hospital. The hospital may be absent from the reference workbook;
+still return the exact visible name. The reference workbook currently contains:
+{json.dumps(hospital_candidates, ensure_ascii=False)}
+
+Return one JSON object:
+{{"hospital_name": "exact hospital name visible on the page, or empty"}}
+""".strip()
+    result = _ollama_vision_json(image, prompt, num_ctx=4096, num_predict=128)
+    return str((result or {}).get("hospital_name") or "").strip()
+
+
+def extract_reference_tariffs_from_image(image: bytes, references: list[dict]) -> list[dict]:
+    if not vision_available() or not references:
+        return []
+    compact = [
+        {
+            "kode_master": row["kode_master"],
+            "nama": row["nama"],
+            "group_code": row.get("group_code") or "",
+        }
+        for row in references
+    ]
+    prompt = f"""
+Read this tariff table page exactly. Match only rows visibly printed on this
+page to the supplied reference list. Copy the printed service name and tariff.
+Do not return a reference merely because it was supplied. Do not use a price
+from the reference list, because the purpose is to verify the PDF.
+
+Reference list:
+{json.dumps(compact, ensure_ascii=False)}
+
+Return one JSON object:
+{{
+  "items": [
+    {{
+      "kode_master": "code from the reference list",
+      "printed_name": "name as printed on this page",
+      "price": 750000
+    }}
+  ]
+}}
+Use an integer for price. Skip rows whose price is unreadable.
+""".strip()
+    result = _ollama_vision_json(image, prompt, num_ctx=16384, num_predict=8192)
+    items = (result or {}).get("items")
+    return items if isinstance(items, list) else []
+
+
 def extract_pdf_cost_lines_with_vision(data: bytes) -> list[CostLine]:
     if not vision_available():
         return []
