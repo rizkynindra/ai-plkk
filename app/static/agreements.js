@@ -7,6 +7,8 @@ const previewButton = document.getElementById("preview-button");
 const editCard = document.getElementById("edit-card");
 const saveForm = document.getElementById("save-form");
 const itemSummary = document.getElementById("item-summary");
+const previewRowCount = document.getElementById("preview-row-count");
+const previewElapsed = document.getElementById("preview-elapsed");
 const previewBody = document.getElementById("preview-body");
 const branchInput = document.getElementById("branch_name");
 
@@ -25,6 +27,13 @@ const TARIFF_HEADERS = [
 const MONEY_COLUMNS = new Set(["price", "price_base", "price_final"]);
 
 let draft = null;
+
+function formatElapsed(seconds) {
+  if (seconds < 60) return seconds.toFixed(1) + " s";
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds - minutes * 60;
+  return minutes + " min " + rest.toFixed(1) + " s";
+}
 
 function formatIdr(value) {
   if (value === null || value === undefined || value === "") return "";
@@ -105,32 +114,46 @@ form.addEventListener("submit", async (event) => {
     status.textContent = "Choose or drop a PKS file first.";
     return;
   }
+  const started = performance.now();
   previewButton.disabled = true;
   status.classList.remove("is-error");
-  status.textContent = "Extracting catalog…";
+  const tick = () => {
+    status.textContent = "Extracting catalog… " + formatElapsed((performance.now() - started) / 1000);
+  };
+  tick();
+  const timer = setInterval(tick, 200);
   try {
     const response = await fetch("/api/agreements/preview", {
       method: "POST",
       body: new FormData(form),
     });
     const body = await response.json();
+    clearInterval(timer);
     if (!response.ok) {
       throw new Error(body.detail || "Preview failed");
     }
     draft = body;
+    const elapsed = formatElapsed(
+      typeof body.elapsed_seconds === "number" ? body.elapsed_seconds : (performance.now() - started) / 1000,
+    );
     ["group_name", "branch_name", "city", "code", "address", "effective_date"].forEach((key) => {
       document.getElementById(key).value = body[key] || "";
     });
     document.getElementById("aliases").value = (body.aliases || []).join(", ");
-    itemSummary.textContent = body.item_count + " rows extracted. Check the sheet, then save.";
+    previewRowCount.textContent = String(body.item_count);
+    previewElapsed.textContent = elapsed;
+    itemSummary.textContent = body.item_count + " rows extracted in " + elapsed + ". Check the sheet, then save.";
     paintPreview();
     editCard.hidden = false;
     editCard.scrollIntoView({ block: "nearest" });
-    status.textContent = "Extracted rows are below. Save writes this sheet to the catalog.";
+    status.textContent = "Finished in " + elapsed + ". Extracted rows are below. Save writes this sheet to the catalog.";
   } catch (error) {
+    clearInterval(timer);
     status.classList.add("is-error");
-    status.textContent = String(error.message || error);
+    status.textContent =
+      "Failed after " + formatElapsed((performance.now() - started) / 1000) + ": " + String(error.message || error);
   } finally {
+    clearInterval(timer);
     previewButton.disabled = false;
   }
 });

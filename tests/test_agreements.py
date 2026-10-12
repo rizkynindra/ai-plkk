@@ -215,6 +215,22 @@ def test_unreadable_scan_uses_vision(monkeypatch) -> None:
     assert draft.items[0].kelompok == "KONSULTASI DOKTER"
 
 
+def test_agreement_preview_reports_elapsed() -> None:
+    data = _text_pdf(
+        [
+            "KONSULTASI DOKTER",
+            "1 Konsultasi Dokter Umum 1.500.000",
+        ]
+    )
+    response = client.post("/api/agreements/preview", files={"file": ("pks.pdf", data, "application/pdf")})
+    assert response.status_code == 200
+    body = response.json()
+    assert isinstance(body["elapsed_seconds"], (int, float))
+    assert body["elapsed_seconds"] >= 0
+    assert 'id="preview-elapsed"' in AGREEMENTS_PAGE
+    assert "Processing time" in AGREEMENTS_PAGE
+
+
 def test_preview_rows_use_workbook_headers() -> None:
     body = preview_pks(
         _text_pdf(

@@ -308,12 +308,15 @@ async def _preview_agreement_base64(body: AgreementBase64Request) -> dict:
 async def _preview_pks_payload(payload: bytes, filename: str) -> dict:
     if not payload:
         raise HTTPException(status_code=400, detail="Empty file.")
+    started = time.perf_counter()
     try:
-        return await run_in_threadpool(preview_pks, payload, filename)
+        draft = await run_in_threadpool(preview_pks, payload, filename)
     except UnsupportedDocumentError as exc:
         raise HTTPException(status_code=415, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    draft["elapsed_seconds"] = round(time.perf_counter() - started, 1)
+    return draft
 
 
 def _apply_agreement_overrides(draft: dict, body: AgreementBase64Request) -> dict:

@@ -27,6 +27,10 @@ AGREEMENTS_BODY = """
             <label>Effective date <input id="effective_date" name="effective_date" placeholder="YYYY-MM-DD"></label>
             <label>Aliases <input id="aliases" name="aliases" placeholder="pelni jakarta, pelni malang"></label>
           </div>
+          <div id="preview-facts" class="facts">
+            <div><span>Rows</span><strong id="preview-row-count"></strong></div>
+            <div><span>Processing time</span><strong id="preview-elapsed"></strong></div>
+          </div>
           <p id="item-summary" class="lede"></p>
           <div class="actions">
             <button class="button" type="submit">Save branch catalog</button>
