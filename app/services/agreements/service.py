@@ -30,8 +30,9 @@ def save_agreement(draft: CatalogDraft) -> dict:
     connection.executemany(
         """
         INSERT INTO agreement_items (
-            agreement_id, kelompok, item_code, item_name, normalized_name, tariff, tariff_note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            agreement_id, kelompok, item_code, item_name, normalized_name,
+            tariff, tariff_note, group_code, source_page
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -42,6 +43,8 @@ def save_agreement(draft: CatalogDraft) -> dict:
                 _norm(item.item_name),
                 item.tariff,
                 item.tariff_note,
+                item.group_code,
+                "" if item.source_page is None else str(item.source_page),
             )
             for item in draft.items
         ],
@@ -92,7 +95,7 @@ def latest_catalog(branch_id: int) -> list[CatalogItem]:
         return []
     rows = connection.execute(
         """
-        SELECT kelompok, item_code, item_name, tariff, tariff_note
+        SELECT kelompok, item_code, item_name, tariff, tariff_note, group_code, source_page
         FROM agreement_items
         WHERE agreement_id = ?
         """,
@@ -105,6 +108,8 @@ def latest_catalog(branch_id: int) -> list[CatalogItem]:
             item_code=row["item_code"],
             kelompok=row["kelompok"],
             tariff_note=row["tariff_note"],
+            group_code=row["group_code"] or "",
+            source_page=_stored_page(row["source_page"]),
         )
         for row in rows
     ]
@@ -116,16 +121,7 @@ def get_branch_catalog(branch_id: int) -> dict | None:
         return None
     items = latest_catalog(branch_id)
     payload = dict(branch)
-    payload["items"] = [
-        {
-            "item_code": item.item_code,
-            "item_name": item.item_name,
-            "kelompok": item.kelompok,
-            "tariff": item.tariff,
-            "tariff_note": item.tariff_note,
-        }
-        for item in items
-    ]
+    payload["items"] = [_tariff_row(item, str(branch["branch_name"] or "")) for item in items]
     return payload
 
 
@@ -152,18 +148,11 @@ def compare_branch_lines(branch_id: int, lines: list[CostLine]) -> dict:
 
 
 def draft_from_payload(payload: dict) -> CatalogDraft:
-    items = [
-        CatalogItem(
-            item_name=str(item.get("item_name") or ""),
-            tariff=item.get("tariff"),
-            item_code=str(item.get("item_code") or ""),
-            kelompok=str(item.get("kelompok") or ""),
-            tariff_note=str(item.get("tariff_note") or ""),
-            source_page=item.get("source_page"),
-        )
-        for item in payload.get("items") or []
-        if str(item.get("item_name") or "").strip()
-    ]
+    items = []
+    for raw in payload.get("items") or []:
+        item = _item_from_payload(raw)
+        if item is not None:
+            items.append(item)
     aliases = payload.get("aliases") or []
     if isinstance(aliases, str):
         aliases = [part.strip() for part in aliases.split(",") if part.strip()]
@@ -230,18 +219,69 @@ def _draft_payload(draft: CatalogDraft) -> dict:
         "source_filename": draft.source_filename,
         "method": draft.method,
         "item_count": len(draft.items),
-        "items": [
-            {
-                "item_code": item.item_code,
-                "item_name": item.item_name,
-                "kelompok": item.kelompok,
-                "tariff": item.tariff,
-                "tariff_note": item.tariff_note,
-                "source_page": item.source_page,
-            }
-            for item in draft.items
-        ],
+        "items": [_tariff_row(item, draft.branch_name) for item in draft.items],
     }
+
+
+TARIFF_COLUMNS = (
+    "kode_master",
+    "kategori_bpjs",
+    "hospital_name",
+    "nama",
+    "group_code",
+    "price",
+    "price_base",
+    "price_final",
+    "price_basis",
+    "source_page",
+)
+
+
+def _tariff_row(item: CatalogItem, hospital_name: str) -> dict:
+    values = {
+        "kode_master": item.item_code,
+        "kategori_bpjs": item.kelompok,
+        "hospital_name": hospital_name,
+        "nama": item.item_name,
+        "group_code": item.group_code,
+        "price": item.tariff,
+        "price_base": item.tariff,
+        "price_final": item.tariff,
+        "price_basis": item.tariff_note,
+        "source_page": item.source_page,
+    }
+    return {column: values[column] for column in TARIFF_COLUMNS}
+
+
+def _item_from_payload(raw: dict) -> CatalogItem | None:
+    name = str(raw.get("nama") or raw.get("item_name") or "").strip()
+    if not name:
+        return None
+    if "price_final" in raw and raw.get("price_final") is not None:
+        tariff = raw.get("price_final")
+    elif raw.get("price") is not None:
+        tariff = raw.get("price")
+    else:
+        tariff = raw.get("tariff")
+    source_page = _stored_page(raw.get("source_page"))
+    return CatalogItem(
+        item_name=name,
+        tariff=tariff,
+        item_code=str(raw.get("kode_master") or raw.get("item_code") or ""),
+        kelompok=str(raw.get("kategori_bpjs") or raw.get("kelompok") or ""),
+        tariff_note=str(raw.get("price_basis") or raw.get("tariff_note") or ""),
+        group_code=str(raw.get("group_code") or ""),
+        source_page=source_page,
+    )
+
+
+def _stored_page(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, int):
+        return value
+    text = str(value).strip()
+    return int(text) if text.isdigit() else None
 
 
 def _norm(name: str) -> str:

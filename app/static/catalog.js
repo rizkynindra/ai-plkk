@@ -1,6 +1,28 @@
+const TARIFF_HEADERS = [
+  "kode_master",
+  "kategori_bpjs",
+  "hospital_name",
+  "nama",
+  "group_code",
+  "price",
+  "price_base",
+  "price_final",
+  "price_basis",
+  "source_page",
+];
+const MONEY_COLUMNS = new Set(["price", "price_base", "price_final"]);
+
 function formatIdr(value) {
   if (value === null || value === undefined || value === "") return "";
-  return Math.round(Number(value)).toLocaleString("id-ID");
+  const number = Number(value);
+  if (Number.isNaN(number)) return "";
+  return Math.round(number).toLocaleString("id-ID");
+}
+
+function cellText(row, key) {
+  if (MONEY_COLUMNS.has(key)) return formatIdr(row[key]);
+  if (row[key] === null || row[key] === undefined) return "";
+  return String(row[key]);
 }
 
 const select = document.getElementById("branch-select");
@@ -47,17 +69,12 @@ select.addEventListener("change", async () => {
   status.textContent = data.item_count + " rows for " + data.branch_name + ".";
   data.items.forEach((item) => {
     const tr = document.createElement("tr");
-    const cells = [
-      item.item_code || "",
-      item.item_name || "",
-      item.kelompok || "",
-      formatIdr(item.tariff),
-      item.tariff_note || "",
-    ];
-    cells.forEach((value, index) => {
+    TARIFF_HEADERS.forEach((key) => {
       const td = document.createElement("td");
-      td.textContent = value;
-      if (index === 3) td.className = "num";
+      td.textContent = cellText(item, key);
+      if (MONEY_COLUMNS.has(key)) td.className = "num";
+      if (key === "nama") td.className = "nama";
+      if (key === "price_basis") td.className = "basis";
       tr.appendChild(td);
     });
     body.appendChild(tr);

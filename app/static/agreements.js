@@ -7,8 +7,66 @@ const previewButton = document.getElementById("preview-button");
 const editCard = document.getElementById("edit-card");
 const saveForm = document.getElementById("save-form");
 const itemSummary = document.getElementById("item-summary");
+const previewBody = document.getElementById("preview-body");
+const branchInput = document.getElementById("branch_name");
+
+const TARIFF_HEADERS = [
+  "kode_master",
+  "kategori_bpjs",
+  "hospital_name",
+  "nama",
+  "group_code",
+  "price",
+  "price_base",
+  "price_final",
+  "price_basis",
+  "source_page",
+];
+const MONEY_COLUMNS = new Set(["price", "price_base", "price_final"]);
 
 let draft = null;
+
+function formatIdr(value) {
+  if (value === null || value === undefined || value === "") return "";
+  const number = Number(value);
+  if (Number.isNaN(number)) return "";
+  return Math.round(number).toLocaleString("id-ID");
+}
+
+function cellText(row, key) {
+  if (MONEY_COLUMNS.has(key)) return formatIdr(row[key]);
+  if (row[key] === null || row[key] === undefined) return "";
+  return String(row[key]);
+}
+
+function paintPreview() {
+  previewBody.replaceChildren();
+  (draft.items || []).forEach((row) => {
+    const tr = document.createElement("tr");
+    TARIFF_HEADERS.forEach((key) => {
+      const td = document.createElement("td");
+      td.textContent = cellText(row, key);
+      if (MONEY_COLUMNS.has(key)) td.className = "num";
+      if (key === "nama") td.className = "nama";
+      if (key === "price_basis") td.className = "basis";
+      if (key === "hospital_name") td.dataset.hospital = "1";
+      tr.appendChild(td);
+    });
+    previewBody.appendChild(tr);
+  });
+}
+
+function syncHospitalName() {
+  if (!draft) return;
+  const name = branchInput.value;
+  draft.branch_name = name;
+  (draft.items || []).forEach((row) => {
+    row.hospital_name = name;
+  });
+  previewBody.querySelectorAll("[data-hospital]").forEach((cell) => {
+    cell.textContent = name;
+  });
+}
 
 function showSelectedFile(file) {
   dropzone.classList.toggle("has-file", Boolean(file));
@@ -64,9 +122,11 @@ form.addEventListener("submit", async (event) => {
       document.getElementById(key).value = body[key] || "";
     });
     document.getElementById("aliases").value = (body.aliases || []).join(", ");
-    itemSummary.textContent = body.item_count + " tariff rows extracted via " + body.method + ".";
+    itemSummary.textContent = body.item_count + " rows extracted. Check the sheet, then save.";
+    paintPreview();
     editCard.hidden = false;
-    status.textContent = "Review hospital details, then save.";
+    editCard.scrollIntoView({ block: "nearest" });
+    status.textContent = "Extracted rows are below. Save writes this sheet to the catalog.";
   } catch (error) {
     status.classList.add("is-error");
     status.textContent = String(error.message || error);
@@ -75,9 +135,12 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
+branchInput.addEventListener("input", syncHospitalName);
+
 saveForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!draft) return;
+  syncHospitalName();
   const aliases = document.getElementById("aliases").value.split(",").map((part) => part.trim()).filter(Boolean);
   const payload = {
     ...draft,
@@ -99,7 +162,7 @@ saveForm.addEventListener("submit", async (event) => {
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.detail || "Save failed");
-    status.textContent = "Saved branch " + body.branch_name + " with " + body.item_count + " items. Open PKS data to browse the rows.";
+    status.textContent = "Saved " + body.branch_name + " with " + body.item_count + " rows. Open PKS data to see the same sheet.";
   } catch (error) {
     status.classList.add("is-error");
     status.textContent = String(error.message || error);

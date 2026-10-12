@@ -35,7 +35,9 @@ CREATE TABLE IF NOT EXISTS agreement_items (
     item_name TEXT NOT NULL,
     normalized_name TEXT NOT NULL,
     tariff REAL,
-    tariff_note TEXT NOT NULL DEFAULT ''
+    tariff_note TEXT NOT NULL DEFAULT '',
+    group_code TEXT NOT NULL DEFAULT '',
+    source_page TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_items_agreement ON agreement_items(agreement_id);
 CREATE INDEX IF NOT EXISTS idx_items_norm ON agreement_items(normalized_name);
@@ -60,8 +62,18 @@ def connect() -> sqlite3.Connection:
         _connection = sqlite3.connect(path, check_same_thread=False)
         _connection.row_factory = sqlite3.Row
         _connection.executescript(_SCHEMA)
+        _ensure_item_columns(_connection)
         _connection_path = path
     return _connection
+
+
+def _ensure_item_columns(connection: sqlite3.Connection) -> None:
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(agreement_items)")}
+    if "group_code" not in columns:
+        connection.execute("ALTER TABLE agreement_items ADD COLUMN group_code TEXT NOT NULL DEFAULT ''")
+    if "source_page" not in columns:
+        connection.execute("ALTER TABLE agreement_items ADD COLUMN source_page TEXT NOT NULL DEFAULT ''")
+    connection.commit()
 
 
 def reset_connection() -> None:

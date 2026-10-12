@@ -31,6 +31,25 @@ AGREEMENTS_BODY = """
           <div class="actions">
             <button class="button" type="submit">Save branch catalog</button>
           </div>
+          <div id="preview-table" class="table-wrap tariff-sheet-wrap">
+            <table class="tariff-sheet">
+              <thead>
+                <tr>
+                  <th>kode_master</th>
+                  <th>kategori_bpjs</th>
+                  <th>hospital_name</th>
+                  <th>nama</th>
+                  <th>group_code</th>
+                  <th>price</th>
+                  <th>price_base</th>
+                  <th>price_final</th>
+                  <th>price_basis</th>
+                  <th>source_page</th>
+                </tr>
+              </thead>
+              <tbody id="preview-body"></tbody>
+            </table>
+          </div>
         </form>
       </section>
 """
@@ -38,10 +57,12 @@ AGREEMENTS_BODY = """
 AGREEMENTS_PAGE = render_app_page(
     title="Upload PKS — EPLKK",
     heading="Upload PKS",
-    lede="Read the tariff book, correct the hospital and branch names, then save. Claim convert stays on its own page.",
+    lede="Read the tariff book, check the extracted rows, then save the catalog.",
     active="pks",
     body=AGREEMENTS_BODY,
     scripts=["/static/nav.js", "/static/agreements.js"],
+    shell_class="shell shell-wide",
+    body_class="agreements-body",
 )
 
 CATALOG_BODY = """
@@ -53,15 +74,20 @@ CATALOG_BODY = """
         </label>
         <p id="catalog-status" class="status is-empty" role="status">Select a branch to see stored tariff rows.</p>
       </section>
-      <div id="catalog-table" class="table-wrap" hidden>
-        <table>
+      <div id="catalog-table" class="table-wrap tariff-sheet-wrap" hidden>
+        <table class="tariff-sheet">
           <thead>
             <tr>
-              <th>Code</th>
-              <th>Item</th>
-              <th>Group</th>
-              <th>Tarif</th>
-              <th>Note</th>
+              <th>kode_master</th>
+              <th>kategori_bpjs</th>
+              <th>hospital_name</th>
+              <th>nama</th>
+              <th>group_code</th>
+              <th>price</th>
+              <th>price_base</th>
+              <th>price_final</th>
+              <th>price_basis</th>
+              <th>source_page</th>
             </tr>
           </thead>
           <tbody id="catalog-body"></tbody>
@@ -76,6 +102,8 @@ CATALOG_PAGE = render_app_page(
     active="catalog",
     body=CATALOG_BODY,
     scripts=["/static/nav.js", "/static/catalog.js"],
+    shell_class="shell shell-wide",
+    body_class="agreements-body",
 )
 
 COMPARE_BODY = """

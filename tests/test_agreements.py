@@ -8,7 +8,27 @@ from app.config import settings
 from app.main import app
 from app.schemas import CostLine
 from app.services.agreements.match import compare_lines
+from app.services.agreements.pages import AGREEMENTS_PAGE, CATALOG_PAGE
 from app.services.agreements.parse import CatalogItem, parse_pks_document
+from app.services.agreements.service import (
+    draft_from_payload,
+    get_branch_catalog,
+    preview_pks,
+    save_agreement,
+)
+
+TARIFF_HEADERS = [
+    "kode_master",
+    "kategori_bpjs",
+    "hospital_name",
+    "nama",
+    "group_code",
+    "price",
+    "price_base",
+    "price_final",
+    "price_basis",
+    "source_page",
+]
 from app.services.agreements.store import reset_connection
 
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"
@@ -193,6 +213,54 @@ def test_unreadable_scan_uses_vision(monkeypatch) -> None:
     assert draft.method == "pdf-vision"
     assert draft.items[0].tariff == 1_500_000
     assert draft.items[0].kelompok == "KONSULTASI DOKTER"
+
+
+def test_preview_rows_use_workbook_headers() -> None:
+    body = preview_pks(
+        _text_pdf(
+            [
+                "KONSULTASI DOKTER",
+                "1 Konsultasi Dokter Umum 1.500.000",
+                "KAMAR PERAWATAN",
+                "Kelas III Kelas II Kelas I",
+                "Rawat Inap 500.000 750.000 1.000.000",
+            ]
+        ),
+        "PKS RS COLUMBIA ASIA BSD.pdf",
+    )
+    assert list(body["items"][0]) == TARIFF_HEADERS
+    umum = next(row for row in body["items"] if row["nama"] == "Konsultasi Dokter Umum")
+    assert umum["kategori_bpjs"] == "KONSULTASI DOKTER"
+    assert umum["price"] == umum["price_base"] == umum["price_final"] == 1_500_000
+    assert umum["hospital_name"] == body["branch_name"]
+    kelas = next(row for row in body["items"] if row["group_code"] == "Kelas I")
+    assert kelas["nama"] == "Rawat Inap Kelas I"
+    assert kelas["price_final"] == 1_000_000
+    assert kelas["source_page"] == 1
+    for header in TARIFF_HEADERS:
+        assert f">{header}<" in AGREEMENTS_PAGE
+        assert f">{header}<" in CATALOG_PAGE
+
+
+def test_saved_catalog_keeps_workbook_headers(temp_db) -> None:
+    body = preview_pks(
+        _text_pdf(
+            [
+                "BIAYA ADMINISTRASI",
+                "BA0001 ADMINISTRASI RAWAT JALAN BARU 75.000",
+            ]
+        ),
+        "TARIF PELNI.pdf",
+    )
+    saved = save_agreement(draft_from_payload(body))
+    catalog = get_branch_catalog(saved["branch_id"])
+    row = catalog["items"][0]
+    assert list(row) == TARIFF_HEADERS
+    assert row["kode_master"] == "BA0001"
+    assert row["kategori_bpjs"] == "BIAYA ADMINISTRASI"
+    assert row["price"] == row["price_base"] == row["price_final"] == 75_000
+    assert row["hospital_name"] == body["branch_name"]
+    assert row["source_page"] == 1
 
 
 def test_unreadable_scan_explains_missing_reader(monkeypatch) -> None:

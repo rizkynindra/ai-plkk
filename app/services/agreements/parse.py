@@ -33,6 +33,7 @@ class CatalogItem:
     kelompok: str = ""
     tariff_note: str = ""
     source_page: int | None = None
+    group_code: str = ""
 
 
 @dataclass
@@ -164,7 +165,7 @@ def _parse_tariff_lines(pages: list[str]) -> list[CatalogItem]:
                         item_name=f"{name} {label}".strip(),
                         tariff=amount,
                         kelompok=kelompok,
-                        tariff_note=label,
+                        group_code=label,
                         source_page=page_number,
                     )
                 )
@@ -213,13 +214,19 @@ def _items_from_vision(rows: list[dict]) -> list[CatalogItem]:
         amount = parse_idr_amount(row.get("tariff"))
         if not name or amount is None or amount < 1000:
             continue
+        note = str(row.get("tariff_note") or "").strip()
+        group_code = str(row.get("group_code") or "").strip()
+        if not group_code and _is_group_code(note):
+            group_code = note
+            note = ""
         source_page = row.get("source_page")
         items.append(
             CatalogItem(
                 item_name=name,
                 tariff=amount,
                 kelompok=str(row.get("kelompok") or "").strip(),
-                tariff_note=str(row.get("tariff_note") or "").strip(),
+                tariff_note=note,
+                group_code=group_code,
                 source_page=source_page if isinstance(source_page, int) else None,
             )
         )
@@ -304,6 +311,7 @@ def _items_from_code_block(
                 tariff=amount,
                 item_code=code,
                 kelompok=kelompok,
+                group_code=label,
                 source_page=page_number,
             )
             for label, amount in zip(class_names, amounts)
@@ -317,6 +325,14 @@ def _items_from_code_block(
             source_page=page_number,
         )
     ]
+
+
+def _is_group_code(note: str) -> bool:
+    tokens = re.findall(r"[A-Za-z]+", note)
+    if not tokens or len(note) > 40:
+        return False
+    allowed = {"KELAS", "I", "II", "III", "IV", "VIP", "VVIP", "KECIL", "SEDANG", "BESAR", "KHUSUS"}
+    return all(token.upper() in allowed for token in tokens)
 
 
 def _class_labels(name: str) -> list[str]:
