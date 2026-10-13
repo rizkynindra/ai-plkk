@@ -101,6 +101,56 @@ def test_reject_iks_catalog() -> None:
         convert_document(data, "Daftar_Biaya_IKS.xlsx")
 
 
+def test_text_claim_pdf_skips_vision(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.convert.build_template_workbook",
+        lambda lines, template_path=None: b"xlsx",
+    )
+    monkeypatch.setattr(
+        "app.services.convert.extract_pdf_cost_lines_with_vision",
+        lambda data: (_ for _ in ()).throw(AssertionError("vision should not run")),
+    )
+    preview, _workbook = convert_document(_text_claim_pdf(), "claim.pdf")
+    assert preview.classification.method != "qwen3-vl"
+    assert preview.lines[0].item_name == "BIAYA ADMINISTRASI"
+    assert preview.lines[0].tariff == 100_000
+
+
+def test_scanned_claim_uses_vision(monkeypatch) -> None:
+    from app.schemas import CostLine
+
+    monkeypatch.setattr("app.services.ingest.pdf.ocr_pil_image", lambda image: "")
+    monkeypatch.setattr("app.services.convert.vision_service_reachable", lambda timeout_seconds=2.0: True)
+    monkeypatch.setattr(
+        "app.services.convert.build_template_workbook",
+        lambda lines, template_path=None: b"xlsx",
+    )
+    monkeypatch.setattr(
+        "app.services.convert.extract_pdf_cost_lines_with_vision",
+        lambda data: [
+            CostLine(
+                sequence_no=1,
+                item_name="Konsultasi Dokter",
+                quantity=1,
+                tariff=150_000,
+                discounted_cost=150_000,
+                source_page=6,
+            )
+        ],
+    )
+    preview, _workbook = convert_document(_scan_pdf(), "DOKUMEN_KLAIM.pdf")
+    assert preview.classification.method == "qwen3-vl"
+    assert preview.lines[0].item_name == "Konsultasi Dokter"
+    assert preview.lines[0].tariff == 150_000
+
+
+def test_scanned_claim_explains_missing_vision(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.ingest.pdf.ocr_pil_image", lambda image: "")
+    monkeypatch.setattr("app.services.convert.vision_service_reachable", lambda timeout_seconds=2.0: False)
+    with pytest.raises(NotClaimInvoiceError, match="scan with no text layer"):
+        convert_document(_scan_pdf(), "DOKUMEN_KLAIM.pdf")
+
+
 def test_reject_unknown_extension() -> None:
     from app.services.ingest.router import UnsupportedDocumentError
 
@@ -199,6 +249,39 @@ def test_ollama_opener_ignores_env_proxies() -> None:
         handler for handler in _ollama_opener.handlers if type(handler).__name__ == "ProxyHandler"
     )
     assert proxy_handler.proxies == {}
+
+
+def _text_claim_pdf() -> bytes:
+    import pymupdf
+
+    document = pymupdf.open()
+    page = document.new_page()
+    rows = [
+        (72, "Item Biaya", 250, "Jumlah", 360, "Tarif", 470, "Biaya"),
+        (72, "BIAYA ADMINISTRASI", 250, "1", 360, "100000", 470, "100000"),
+        (72, "HOMECARE", 250, "2", 360, "50000", 470, "100000"),
+    ]
+    y = 72
+    for row in rows:
+        for index in range(0, len(row), 2):
+            page.insert_text((row[index], y), row[index + 1], fontsize=11)
+        y += 22
+    data = document.tobytes()
+    document.close()
+    return data
+
+
+def _scan_pdf() -> bytes:
+    import pymupdf
+
+    document = pymupdf.open()
+    page = document.new_page()
+    pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 8, 8), 1)
+    pixmap.clear_with(255)
+    page.insert_image(page.rect, pixmap=pixmap)
+    data = document.tobytes()
+    document.close()
+    return data
 
 
 def test_ollama_vision_json_returns_none_on_http_403(monkeypatch) -> None:

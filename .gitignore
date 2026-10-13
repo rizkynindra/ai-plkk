@@ -13,3 +13,4 @@ dist/
 samples/.~lock.*
 data/*.db
 data/tarif-review/
+master-tarif
